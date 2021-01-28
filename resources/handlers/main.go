@@ -2,12 +2,12 @@ package handlers
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
-var db *sqlx.DB
+var db *gorm.DB
 
-func Initialize(r *mux.Router, _db *sqlx.DB) {
+func Initialize(r *mux.Router, _db *gorm.DB) {
 	db = _db
 	initializeUser(r)
 	initializeTodo(r)

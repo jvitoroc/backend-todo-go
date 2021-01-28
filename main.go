@@ -4,9 +4,10 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 	"github.com/jvitoroc/todo-api/resources"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func setBasics(next http.Handler) http.Handler {
@@ -25,7 +26,8 @@ func corsHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	err := godotenv.Load()
-	db, err := sqlx.Open("sqlite3", "file:test.db?&cache=shared&_fk=1")
+	// db, err := sqlx.Open("sqlite3", "file:test.db?&cache=shared&_fk=1")
+	db, err := gorm.Open(sqlite.Open("file:test.db?&cache=shared&_fk=1"), &gorm.Config{})
 
 	if err != nil {
 		panic(err)

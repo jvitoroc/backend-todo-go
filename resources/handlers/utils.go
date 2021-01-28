@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -23,37 +24,12 @@ const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
 
 var emailRegex = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 
-/* << Pre-defined messages */
-var MSG_UNKNOWN_ERROR = "An unknown error ocurred while processing the request: %s"
-var MSG_ONE_MORE_ERRORS = "One or more errors ocurred while processing the request."
-var MSG_NOT_FOUND_ERROR = "%s not found under the given id (%d)."
-
-/* Pre-defined messages >> */
-
-type appError struct {
-	Message string            `json:"message"`
-	Errors  map[string]string `json:"errors"`
-	Code    int               `json:"-"`
-}
-
-type appHandler func(http.ResponseWriter, *http.Request) *appError
+type appHandler func(http.ResponseWriter, *http.Request) *common.Error
 
 func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if e := fn(w, r); e != nil { // e is *appError, not os.Error.
-		respond(e, e.Code, w)
+	if err := fn(w, r); err != nil {
+		respondWithError(*err, w)
 	}
-}
-
-func unknownAppError(err error) *appError {
-	return &appError{fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), nil, http.StatusInternalServerError}
-}
-
-func createAppError(message string, code int) *appError {
-	return &appError{message, nil, code}
-}
-
-func createMappedAppError(message string, errors map[string]string, code int) *appError {
-	return &appError{message, errors, code}
 }
 
 func respond(data interface{}, statusCode int, w http.ResponseWriter) {
@@ -65,23 +41,27 @@ func respondWithMessage(message string, statusCode int, w http.ResponseWriter) {
 	respond(map[string]string{"message": message}, statusCode, w)
 }
 
-func generatePasswordHash(passwordHash *string, password string, w http.ResponseWriter) *appError {
+func respondWithError(err common.Error, w http.ResponseWriter) {
+	respond(err, err.Code, w)
+}
+
+func generatePasswordHash(passwordHash *string, password string, w http.ResponseWriter) *common.Error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 10)
 	if err != nil {
-		return unknownAppError(err)
+		return common.CreateGenericInternalError(err)
 	}
 	*passwordHash = string(hash)
 	return nil
 }
 
-func createToken(userId int) (string, error) {
+func createToken(userId int) (string, *common.Error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"userId": strconv.Itoa(userId),
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
-		return "", err
+		return "", common.CreateGenericBadRequestError(err)
 	}
 	return tokenString, nil
 }
@@ -116,23 +96,24 @@ func generateActivationCode() string {
 	return code
 }
 
-func sendNewVerificationCode(userId int64) *appError {
+func sendNewVerificationCode(userId int) *common.Error {
 	expiresAt := time.Now().Local().Add(time.Minute * time.Duration(15))
 	code := generateActivationCode()
 
+	var request *repo.UserActivationRequest
+	var err *common.Error
 	var user *repo.User
-	var err error
 
-	if err := repo.UpsertUserActivationRequest(db, userId, code, expiresAt); err != nil {
-		return unknownAppError(err)
+	if request, err = repo.UpsertUserActivationRequest(db, userId, code, expiresAt); err != nil {
+		return err
 	}
 
 	if user, err = repo.GetUser(db, userId); err != nil {
-		return unknownAppError(err)
+		return err
 	}
 
-	if err := sendActivationEmail(user.Username, user.Email, code, expiresAt); err != nil {
-		return unknownAppError(err)
+	if err := sendActivationEmail(user.Username, user.Email, request.Code, request.ExpiresAt); err != nil {
+		return common.CreateGenericInternalError(err)
 	}
 
 	return nil

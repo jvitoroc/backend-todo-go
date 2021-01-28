@@ -1,100 +1,150 @@
 package repo
 
 import (
-	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/jvitoroc/todo-api/resources/common"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type User struct {
-	ID           int       `json:"userId" db:"userId"`
-	Username     string    `json:"username" db:"username"`
-	PasswordHash string    `json:"-" db:"passwordHash"`
-	Email        string    `json:"email" db:"email"`
-	Active       bool      `json:"active" db:"active"`
-	CreatedAt    time.Time `json:"createdAt" db:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt" db:"updatedAt"`
+	ID           int       `json:"userId"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	Email        string    `json:"email"`
+	Active       bool      `json:"active"`
+	Todos        []Todo    `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type UserActivationRequest struct {
-	UserID    int       `json:"userId" db:"userId"`
-	Code      string    `json:"code" db:"code"`
-	ExpiresAt time.Time `json:"expiresAt" db:"expiresAt"`
+	UserID    int       `json:"userId" gorm:"primaryKey"`
+	User      User      `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-func InsertUser(db *sqlx.DB, username string, email string, passwordHash string) (*int64, error) {
+func InsertUser(db *gorm.DB, username string, email string, passwordHash string) (*User, *common.Error) {
 	now := time.Now()
+	tx := db.Begin()
 
-	res, err := db.NamedExec("insert into user (username, email, passwordHash, createdAt, updatedAt) values (:username, :email, :passwordHash, :createdAt, :updatedAt)",
-		map[string]interface{}{
-			"username":     username,
-			"email":        email,
-			"passwordHash": passwordHash,
-			"createdAt":    now,
-			"updatedAt":    now})
-
-	if err != nil {
+	if err := CheckIfUsernameExists(tx, username); err != nil {
+		tx.Rollback()
 		return nil, err
 	}
 
-	id, _ := res.LastInsertId()
-
-	return &id, err
-}
-
-func UpsertUserActivationRequest(db *sqlx.DB, userId int64, code string, expiresAt time.Time) error {
-	_, err := db.NamedExec(`
-		insert into user_activation_request (userId, expiresAt, code) values (:userId, :expiresAt, :code)
-		on conflict(userId) do update
-		set expiresAt = :expiresAt, code = :code
-	`,
-		map[string]interface{}{
-			"userId":    userId,
-			"expiresAt": expiresAt,
-			"code":      code})
-
-	return err
-}
-
-func UpdateUser(db *sqlx.DB, userId int64, pairs map[string]interface{}) (sql.Result, error) {
-	var command string = "update user set "
-
-	for key := range pairs {
-		command = command + key + " = :" + key + ","
+	if err := CheckIfEmailExists(tx, email); err != nil {
+		tx.Rollback()
+		return nil, err
 	}
 
-	command = command[:len(command)-1]
-	command = command + " where userId = :userId"
+	user := User{Username: username, Email: email, PasswordHash: passwordHash, CreatedAt: now, UpdatedAt: now}
+	if result := tx.Create(&user); result.Error != nil {
+		tx.Rollback()
+		return nil, common.CreateGenericInternalError(result.Error)
+	}
 
-	pairs["userId"] = userId
-	pairs["updatedAt"] = time.Now()
-
-	res, err := db.NamedExec(command, pairs)
-
-	return res, err
+	tx.Commit()
+	return &user, nil
 }
 
-func GetUserActivationRequest(db *sqlx.DB, userId int64) (*UserActivationRequest, error) {
+func UpsertUserActivationRequest(db *gorm.DB, userId int, code string, expiresAt time.Time) (*UserActivationRequest, *common.Error) {
+	request := UserActivationRequest{UserID: userId, ExpiresAt: expiresAt, Code: code}
+
+	if result := db.Clauses(clause.OnConflict{UpdateAll: true, Columns: []clause.Column{{Name: "userId"}}}).Create(&request); result.Error != nil {
+		return nil, common.CreateGenericInternalError(result.Error)
+	}
+
+	return &request, nil
+}
+
+func UpdateUser(db *gorm.DB, user *User) *common.Error {
+	var result *gorm.DB
+
+	if result = db.Model(user).Updates(user); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return common.CreateNotFoundError(fmt.Sprintf("User not found under given id (%d).", user.ID))
+		} else {
+			return common.CreateGenericInternalError(result.Error)
+		}
+	}
+
+	return nil
+}
+
+func GetUserActivationRequest(db *gorm.DB, userId int) (*UserActivationRequest, *common.Error) {
+	var result *gorm.DB
 	request := UserActivationRequest{}
 
-	err := db.Get(&request, `select * from user_activation_request where userId = $1`, userId)
+	if result = db.Where("user_id = ?", userId).First(&request); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, common.CreateNotFoundError(fmt.Sprintf("User's activation request not found under given user id (%d).", userId))
+		} else {
+			return nil, common.CreateGenericInternalError(result.Error)
+		}
+	}
 
-	return &request, err
+	return &request, nil
 }
 
-func GetUser(db *sqlx.DB, userId int64) (*User, error) {
+func GetUser(db *gorm.DB, userId int) (*User, *common.Error) {
+	var result *gorm.DB
 	user := User{}
 
-	err := db.Get(&user, `select * from user where userId = $1`, userId)
+	if result = db.Where("id = ?", userId).First(&user); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, common.CreateNotFoundError(fmt.Sprintf("User not found under given id (%d).", userId))
+		} else {
+			return nil, common.CreateGenericInternalError(result.Error)
+		}
+	}
 
-	return &user, err
+	return &user, nil
 }
 
-func GetUserByUsername(db *sqlx.DB, username string) (*User, error) {
+func GetUserByUsername(db *gorm.DB, username string) (*User, *common.Error) {
+	var result *gorm.DB
 	user := User{}
 
-	err := db.Get(&user, `select * from user where username = $1`, username)
+	if result = db.Where("username = ?", username).First(&user); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, common.CreateNotFoundError(fmt.Sprintf("User not found under given username (%s).", username))
+		} else {
+			return nil, common.CreateGenericInternalError(result.Error)
+		}
+	}
 
-	return &user, err
+	return &user, nil
+}
+
+func CheckIfUsernameExists(db *gorm.DB, username string) *common.Error {
+	var count int64
+
+	if result := db.Model(&User{}).Select("id").Where("username = ?", username).Count(&count); result.Error != nil {
+		return common.CreateGenericInternalError(result.Error)
+	}
+
+	if count > 0 {
+		return common.CreateFormError(map[string]string{"username": "Username already exists."})
+	}
+
+	return nil
+}
+
+func CheckIfEmailExists(db *gorm.DB, email string) *common.Error {
+	var count int64
+
+	if result := db.Model(&User{}).Select("id").Where("email = ?", email).Count(&count); result.Error != nil {
+		return common.CreateGenericInternalError(result.Error)
+	}
+
+	if count > 0 {
+		return common.CreateFormError(map[string]string{"email": "Email already exists."})
+	}
+
+	return nil
 }

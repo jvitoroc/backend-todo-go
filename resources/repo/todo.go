@@ -1,114 +1,127 @@
 package repo
 
 import (
-	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/jvitoroc/todo-api/resources/common"
+	"gorm.io/gorm"
 )
 
 type Todo struct {
-	ID           int64     `json:"todoId" db:"todoId"`
-	ParentTodoID *int64    `json:"parentTodoId" db:"parentTodoId"`
-	UserID       int64     `json:"userId" db:"userId"`
-	Description  string    `json:"description" db:"description"`
-	Completed    bool      `json:"completed" db:"completed"`
-	CreatedAt    time.Time `json:"createdAt" db:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt" db:"updatedAt"`
+	ID           int       `json:"todoId"`
+	ParentTodoID *int      `json:"parentTodoId"`
+	ParentTodo   *Todo     `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	UserID       int       `json:"userId"`
+	User         User      `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	Description  string    `json:"description"`
+	Completed    bool      `json:"completed"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-func InsertTodo(db *sqlx.DB, userId int64, description string) (*int64, error) {
+func InsertTodo(db *gorm.DB, userId int, description string) (*Todo, *common.Error) {
 	now := time.Now()
 
-	res, err := db.NamedExec("insert into todo (userId, description, createdAt, updatedAt) values (:userId, :description, :createdAt, :updatedAt)",
-		map[string]interface{}{
-			"userId":      userId,
-			"description": description,
-			"createdAt":   now,
-			"updatedAt":   now})
-
-	if err != nil {
-		return nil, err
+	todo := Todo{UserID: userId, Description: description, CreatedAt: now, UpdatedAt: now}
+	if result := db.Create(&todo); result.Error != nil {
+		return nil, common.CreateGenericInternalError(result.Error)
 	}
 
-	id, err := res.LastInsertId()
-
-	return &id, err
+	return &todo, nil
 }
 
-func InsertTodoChild(db *sqlx.DB, userId int64, parentTodoId int64, description string) (*int64, error) {
+func InsertTodoChild(db *gorm.DB, userId int, parentTodoId int, description string) (*Todo, *common.Error) {
 	now := time.Now()
 
-	res, err := db.NamedExec("insert into todo (userId, parentTodoId, description, createdAt, updatedAt) values (:userId, :parentTodoId, :description, :createdAt, :updatedAt)",
-		map[string]interface{}{
-			"userId":       userId,
-			"parentTodoId": parentTodoId,
-			"description":  description,
-			"createdAt":    now,
-			"updatedAt":    now})
-
-	if err != nil {
-		return nil, err
+	todo := Todo{UserID: userId, ParentTodoID: &parentTodoId, Description: description, CreatedAt: now, UpdatedAt: now}
+	if result := db.Create(&todo); result.Error != nil {
+		if result.Error.Error() == "FOREIGN KEY constraint failed" {
+			return nil, common.CreateNotFoundError(fmt.Sprintf("Todo not found under given id (%d).", parentTodoId))
+		} else {
+			return nil, common.CreateGenericInternalError(result.Error)
+		}
 	}
 
-	id, _ := res.LastInsertId()
-
-	return &id, err
+	return &todo, nil
 }
 
-func UpdateTodo(db *sqlx.DB, userId int64, todoId int64, pairs map[string]interface{}) (sql.Result, error) {
-	var command string = "update todo set "
+func UpdateTodo(db *gorm.DB, userId int, todoId int, columns map[string]interface{}) *common.Error {
+	var result *gorm.DB
 
-	for key := range pairs {
-		command = command + key + " = :" + key + ","
+	if result = db.Model(&Todo{}).Where("id = ?", todoId).Updates(columns); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return common.CreateNotFoundError(fmt.Sprintf("Todo not found under given id (%d).", todoId))
+		} else {
+			return common.CreateGenericInternalError(result.Error)
+		}
 	}
 
-	command = command[:len(command)-1]
-	command = command + " where userId = :userId and todoId = :todoId"
-
-	pairs["userId"] = userId
-	pairs["todoId"] = todoId
-	pairs["updatedAt"] = time.Now()
-
-	res, err := db.NamedExec(command, pairs)
-
-	return res, err
+	return nil
 }
 
-func DeleteTodo(db *sqlx.DB, userId int64, todoId int64) (sql.Result, error) {
-	res, err := db.Exec("delete from todo where userId = $1 and todoId = $2", userId, todoId)
+func DeleteTodo(db *gorm.DB, userId int, todoId int) *common.Error {
+	var result *gorm.DB
 
-	return res, err
+	if result = db.Where("id = ? and user_id = ?", todoId, userId).Delete(&Todo{}); result.Error != nil {
+		return common.CreateGenericInternalError(result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return common.CreateNotFoundError(fmt.Sprintf("Todo not found under given id (%d).", todoId))
+	}
+
+	return nil
 }
 
-func DeleteTodos(db *sqlx.DB, userId int64, todosId []int64) (sql.Result, error) {
-	query, args, err := sqlx.In("delete from todo where todoId in (?) and userId = ?", todosId, userId)
-	query = db.Rebind(query)
-	res, err := db.Exec(query, args...)
+func DeleteTodos(db *gorm.DB, userId int, todosId []int) *common.Error {
+	var result *gorm.DB
 
-	return res, err
+	if result = db.Where("id in ? and user_id = ?", todosId, userId).Delete(&Todo{}); result.Error != nil {
+		return common.CreateGenericInternalError(result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return common.CreateNotFoundError("Todos not found.")
+	}
+
+	return nil
 }
 
-func GetTodo(db *sqlx.DB, userId int64, todoId int64) (*Todo, error) {
+func GetTodo(db *gorm.DB, userId int, todoId int) (*Todo, *common.Error) {
+	var result *gorm.DB
 	todo := Todo{}
 
-	err := db.Get(&todo, `select * from todo where userId = $1 and todoId = $2`, userId, todoId)
+	if result = db.Where("id = ? and user_id = ?", todoId, userId).First(&todo); result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, common.CreateNotFoundError(fmt.Sprintf("Todo not found under given id (%d).", todoId))
+		} else {
+			return nil, common.CreateGenericInternalError(result.Error)
+		}
+	}
 
-	return &todo, err
+	return &todo, nil
 }
 
-func GetTodoChildren(db *sqlx.DB, userId int64, todoId int64) ([]Todo, error) {
+func GetTodoChildren(db *gorm.DB, userId int, todoId int) ([]Todo, *common.Error) {
+	var result *gorm.DB
 	todos := []Todo{}
 
-	err := db.Select(&todos, `select * from todo where userId = $1 and parentTodoId = $2 order by createdAt desc`, userId, todoId)
+	if result = db.Where("parent_todo_id = ? and user_id = ?", todoId, userId).Find(&todos); result.Error != nil {
+		return nil, common.CreateGenericInternalError(result.Error)
+	}
 
-	return todos, err
+	return todos, nil
 }
 
-func GetRootTodoChildren(db *sqlx.DB, userId int64) ([]Todo, error) {
+func GetRootTodoChildren(db *gorm.DB, userId int) ([]Todo, *common.Error) {
+	var result *gorm.DB
 	todos := []Todo{}
 
-	err := db.Select(&todos, `select * from todo where userId = $1 and parentTodoId is null order by createdAt desc`, userId)
+	if result = db.Where("parent_todo_id is null and user_id = ?", userId).Find(&todos); result.Error != nil {
+		return nil, common.CreateGenericInternalError(result.Error)
+	}
 
-	return todos, err
+	return todos, nil
 }

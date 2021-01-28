@@ -1,17 +1,14 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
-	"github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -41,7 +38,7 @@ func addUserHandlers(r *mux.Router) {
 	protectedRouter.Handle("/", appHandler(getUserHandler)).Methods("GET")
 }
 
-func createUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+func createUserHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	requestBody := UserRequestBody{}
 
 	if err := extractUser(&requestBody, r); err != nil {
@@ -57,30 +54,21 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return err
 	}
 
-	id, err := repo.InsertUser(db, *requestBody.Username, *requestBody.Email, passwordHash)
-
-	if err != nil {
-		switch err.(sqlite3.Error).Code {
-		case 19:
-			return createAlreadyExistsError(err)
-		default:
-			return unknownAppError(err)
-		}
-	}
-
 	var user *repo.User
+	var err *common.Error
 
-	if user, err = repo.GetUser(db, *id); err != nil {
-		return unknownAppError(err)
+	if user, err = repo.InsertUser(db, *requestBody.Username, *requestBody.Email, passwordHash); err != nil {
+		return err
 	}
 
-	if err := sendNewVerificationCode(*id); err != nil {
+	if err := sendNewVerificationCode(user.ID); err != nil {
 		return err
 	}
 
 	respond(
 		map[string]interface{}{
-			"message": "User successfully created. An email with a verification code was just sent to your email address.",
+			"message": "User successfully created.",
+			"detail":  "An email with a verification code was just sent to your email address.",
 			"data":    user,
 		},
 		http.StatusCreated,
@@ -89,7 +77,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func createUserSessionHandler(w http.ResponseWriter, r *http.Request) *appError {
+func createUserSessionHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	requestBody := UserRequestBody{}
 
 	if err := extractUser(&requestBody, r); err != nil {
@@ -100,24 +88,24 @@ func createUserSessionHandler(w http.ResponseWriter, r *http.Request) *appError 
 		return err
 	}
 
-	user, err := repo.GetUserByUsername(db, *requestBody.Username)
+	var user *repo.User
+	var err *common.Error
 
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return createAppError("Username or password is incorrect.", http.StatusBadRequest)
-		} else {
-			return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusBadRequest)
+	if user, err = repo.GetUserByUsername(db, *requestBody.Username); err != nil {
+		if err.Code == common.ENOTFOUND {
+			err.Message = "Username or password is incorrect."
+			err.Code = common.EINVALID
 		}
+		return err
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(*requestBody.Password))
-	if err != nil {
-		return createAppError("Username or password is incorrect.", http.StatusBadRequest)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(*requestBody.Password)); err != nil {
+		return common.CreateBadRequestError("Username or password is incorrect.")
 	}
 
 	token, err := createToken(user.ID)
 	if err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusBadRequest)
+		return err
 	}
 
 	respond(
@@ -134,50 +122,52 @@ func createUserSessionHandler(w http.ResponseWriter, r *http.Request) *appError 
 	return nil
 }
 
-func verifiyUserHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
+func verifiyUserHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 	requestBody := map[string]string{}
 
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusBadRequest)
+		return common.CreateGenericBadRequestError(err)
 	}
 
 	var verificationCode string
 	var ok bool
+
 	if verificationCode, ok = requestBody["verificationCode"]; !ok {
-		return createAppError(fmt.Sprintf("Verification code not provided."), http.StatusBadRequest)
+		return common.CreateBadRequestError("Verification code not provided.")
 	}
 
 	var request *repo.UserActivationRequest
-	var err error
+	var err *common.Error
+
 	if request, err = repo.GetUserActivationRequest(db, userId); err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusInternalServerError)
+		return err
 	}
 
 	if verificationCode != request.Code || time.Now().After(request.ExpiresAt) {
-		return createAppError("Given verification code is invalid or expired.", http.StatusBadRequest)
+		return common.CreateBadRequestError("Given verification code is invalid or expired.")
 	}
 
-	if _, err = repo.UpdateUser(db, userId, map[string]interface{}{"active": true}); err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusInternalServerError)
+	if err = repo.UpdateUser(db, &repo.User{ID: userId, Active: true}); err != nil {
+		return err
 	}
 
 	respondWithMessage("User successfully verified.", http.StatusOK, w)
 	return nil
 }
 
-func resendEmailHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
+func resendEmailHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 
 	var user *repo.User
-	var err error
+	var err *common.Error
 
 	if user, err = repo.GetUser(db, userId); err != nil {
-		return unknownAppError(err)
+		return err
 	}
 
 	if user.Active {
-		return createAppError("Your account is already verified.", http.StatusConflict)
+		return common.CreateConflictError("Your account is already verified.")
 	}
 
 	if err := sendNewVerificationCode(userId); err != nil {
@@ -188,7 +178,7 @@ func resendEmailHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func getUserHandler(w http.ResponseWriter, r *http.Request) *appError {
+func getUserHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	user := r.Context().Value("user").(*repo.User)
 
 	respond(
@@ -202,20 +192,20 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func extractUser(user *UserRequestBody, r *http.Request) *appError {
+func extractUser(user *UserRequestBody, r *http.Request) *common.Error {
 	err := json.NewDecoder(r.Body).Decode(user)
 	if err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusBadRequest)
+		return common.CreateGenericBadRequestError(err)
 	}
 	return nil
 }
 
-func validateUser(onlyCheckExistence bool, ignoreEmail bool, user *UserRequestBody) *appError {
+func validateUser(checkWhetherExistsOnly bool, ignoreEmail bool, user *UserRequestBody) *common.Error {
 	errors := map[string]string{}
 
 	if user.Username == nil || *user.Username == "" {
 		errors["username"] = "Username field is empty or missing."
-	} else if !onlyCheckExistence && len(*user.Username) < 8 {
+	} else if !checkWhetherExistsOnly && len(*user.Username) < 8 {
 		errors["username"] = "Username must have 8 characters or more."
 	}
 
@@ -229,30 +219,13 @@ func validateUser(onlyCheckExistence bool, ignoreEmail bool, user *UserRequestBo
 
 	if user.Password == nil || *user.Password == "" {
 		errors["password"] = "Password field is empty or missing."
-	} else if !onlyCheckExistence && len(*user.Password) < 8 {
+	} else if !checkWhetherExistsOnly && len(*user.Password) < 8 {
 		errors["password"] = "Password must have 8 characters or more."
 	}
 
 	if len(errors) == 0 {
 		return nil
 	} else {
-		return createMappedAppError(MSG_ONE_MORE_ERRORS, errors, http.StatusBadRequest)
+		return common.CreateFormError(errors)
 	}
-}
-
-func createAlreadyExistsError(err error) *appError {
-	msg := err.Error()
-	errors := map[string]string{}
-
-	if strings.Contains(msg, "user.username") {
-		errors["username"] = "Username already exists."
-	} else if strings.Contains(msg, "user.email") {
-		errors["email"] = "Email already exists."
-	}
-
-	return createMappedAppError(
-		MSG_ONE_MORE_ERRORS,
-		errors,
-		http.StatusConflict,
-	)
 }

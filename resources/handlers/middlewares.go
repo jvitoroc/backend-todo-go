@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
 )
 
@@ -32,23 +31,19 @@ func authenticateRequest(next http.Handler) http.Handler {
 
 func checkActivationState(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var err error
+		var err *common.Error
 		var user *repo.User
-		userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
+		userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 
 		if user, err = repo.GetUser(db, userId); err != nil {
-			if err == sql.ErrNoRows {
-				respondWithMessage(fmt.Sprintf(MSG_NOT_FOUND_ERROR, "User", userId), http.StatusNotFound, w)
-			} else {
-				respondWithMessage("An error ocurred while verifying your account: "+err.Error(), http.StatusUnauthorized, w)
-			}
+			respondWithError(*err, w)
 			return
 		}
 
 		if !user.Active {
 			respond(
 				map[string]interface{}{
-					"message":      "Your account is not yet verified. Check your mailbox.",
+					"caption":      "Your account is not yet verified. Check your mailbox.",
 					"userVerified": false,
 					"data":         user,
 				},

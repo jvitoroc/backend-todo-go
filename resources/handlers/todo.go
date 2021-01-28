@@ -1,12 +1,11 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 
+	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
 
 	"github.com/gorilla/mux"
@@ -34,7 +33,7 @@ func addTodoHandlers(r *mux.Router) {
 	sr.Handle("/{id:[0-9]*}", appHandler(getTodoHandler)).Methods("GET")
 }
 
-func createTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
+func createTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	requestBody := TodoRequestBody{}
 
 	if err := extractTodo(&requestBody, r); err != nil {
@@ -45,26 +44,21 @@ func createTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 		return err
 	}
 
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
+	var err *common.Error
+	var todo *repo.Todo
+
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 	parentTodoId, ok := mux.Vars(r)["id"]
 
-	var err error
-	var id *int64
 	if ok {
-		parentTodoId, _ := strconv.ParseInt(parentTodoId, 10, 64)
-		id, err = repo.InsertTodoChild(db, userId, parentTodoId, *requestBody.Description)
+		parentTodoId, _ := strconv.Atoi(parentTodoId)
+		todo, err = repo.InsertTodoChild(db, userId, parentTodoId, *requestBody.Description)
 	} else {
-		id, err = repo.InsertTodo(db, userId, *requestBody.Description)
+		todo, err = repo.InsertTodo(db, userId, *requestBody.Description)
 	}
 
 	if err != nil {
-		return unknownAppError(err)
-	}
-
-	todo, err := repo.GetTodo(db, userId, *id)
-
-	if err != nil {
-		return unknownAppError(err)
+		return err
 	}
 
 	respond(
@@ -78,10 +72,9 @@ func createTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func updateTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
-	todoId, _ := mux.Vars(r)["id"]
-	_todoId, _ := strconv.ParseInt(todoId, 10, 64)
+func updateTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	todoId, _ := strconv.Atoi(mux.Vars(r)["id"])
 
 	requestBody := TodoRequestBody{}
 
@@ -92,27 +85,22 @@ func updateTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 	columns := make(map[string]interface{})
 
 	if requestBody.Completed != nil {
-		columns["completed"] = requestBody.Completed
+		columns["completed"] = *requestBody.Completed
 	}
 
 	if requestBody.Description != nil {
-		columns["description"] = requestBody.Description
+		columns["description"] = *requestBody.Description
 	}
 
-	res, err := repo.UpdateTodo(db, userId, _todoId, columns)
-
-	if rows, _err := res.RowsAffected(); _err == nil && rows == 0 {
-		return createAppError(fmt.Sprintf(MSG_NOT_FOUND_ERROR, "Todo", _todoId), http.StatusNotFound)
+	if err := repo.UpdateTodo(db, userId, todoId, columns); err != nil {
+		return err
 	}
 
-	if err != nil {
-		return unknownAppError(err)
-	}
+	var todo *repo.Todo
+	var err *common.Error
 
-	todo, err := repo.GetTodo(db, userId, _todoId)
-
-	if err != nil {
-		return unknownAppError(err)
+	if todo, err = repo.GetTodo(db, userId, todoId); err != nil {
+		return err
 	}
 
 	respond(
@@ -126,64 +114,53 @@ func updateTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func deleteTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
-	todoId, _ := mux.Vars(r)["id"]
-	_todoId, _ := strconv.ParseInt(todoId, 10, 64)
+func deleteTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	todoId, _ := strconv.Atoi(mux.Vars(r)["id"])
 
-	res, err := repo.DeleteTodo(db, userId, _todoId)
-
-	if err != nil {
-		return unknownAppError(err)
-	}
-
-	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
-		return createAppError(fmt.Sprintf(MSG_NOT_FOUND_ERROR, "Todo", _todoId), http.StatusNotFound)
+	if err := repo.DeleteTodo(db, userId, todoId); err != nil {
+		return err
 	}
 
 	respondWithMessage("Todo successfully deleted.", http.StatusOK, w)
 	return nil
 }
 
-func deleteManyTodosHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
-	requestBody := make(map[string][]int64)
+func deleteManyTodosHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	requestBody := make(map[string][]int)
 
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-		return unknownAppError(err)
+		return common.CreateGenericBadRequestError(err)
 	}
 
 	ids, ok := requestBody["ids"]
 
 	if ok == false {
-		return createAppError("A list of todos' IDs was not given.", http.StatusBadRequest)
+		return common.CreateBadRequestError("A list of todos' IDs was not given.")
 	}
 
-	if _, err := repo.DeleteTodos(db, userId, ids); err != nil {
-		return unknownAppError(err)
+	if err := repo.DeleteTodos(db, userId, ids); err != nil {
+		return err
 	}
 
 	respondWithMessage("Todos successfully deleted.", http.StatusOK, w)
 	return nil
 }
 
-func getTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
-	userId, _ := strconv.ParseInt(r.Context().Value("userId").(string), 10, 64)
+func getTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
+	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 	todoId, ok := mux.Vars(r)["id"]
-	_todoId, _ := strconv.ParseInt(todoId, 10, 64)
+	_todoId, _ := strconv.Atoi(todoId)
 
-	var err error
+	var err *common.Error
 	var todo *repo.Todo
 	var parent *repo.Todo
 	var grandParent *repo.Todo
 
 	if ok {
 		if todo, err = repo.GetTodo(db, userId, _todoId); err != nil {
-			if err == sql.ErrNoRows {
-				return createAppError(fmt.Sprintf(MSG_NOT_FOUND_ERROR, "Todo", _todoId), http.StatusNotFound)
-			} else {
-				return unknownAppError(err)
-			}
+			return err
 		}
 		if todo != nil && todo.ParentTodoID != nil {
 			parent, err = repo.GetTodo(db, userId, *todo.ParentTodoID)
@@ -202,7 +179,7 @@ func getTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 	}
 
 	if err != nil {
-		return unknownAppError(err)
+		return err
 	}
 
 	respond(
@@ -221,15 +198,15 @@ func getTodoHandler(w http.ResponseWriter, r *http.Request) *appError {
 	return nil
 }
 
-func extractTodo(todo *TodoRequestBody, r *http.Request) *appError {
+func extractTodo(todo *TodoRequestBody, r *http.Request) *common.Error {
 	err := json.NewDecoder(r.Body).Decode(todo)
 	if err != nil {
-		return createAppError(fmt.Sprintf(MSG_UNKNOWN_ERROR, err.Error()), http.StatusBadRequest)
+		return common.CreateGenericBadRequestError(err)
 	}
 	return nil
 }
 
-func validateTodo(todo *TodoRequestBody) *appError {
+func validateTodo(todo *TodoRequestBody) *common.Error {
 	errors := map[string]string{}
 
 	if todo.Description == nil || *todo.Description == "" {
@@ -239,6 +216,6 @@ func validateTodo(todo *TodoRequestBody) *appError {
 	if len(errors) == 0 {
 		return nil
 	} else {
-		return createMappedAppError(MSG_ONE_MORE_ERRORS, errors, http.StatusBadRequest)
+		return common.CreateFormError(errors)
 	}
 }

@@ -11,15 +11,18 @@ require (
 	// github.com/fatih/color v1.10.0 // indirect
 	// github.com/gorilla/handlers v1.4.2 // indirect
 	github.com/gorilla/mux v1.8.0
+	github.com/jinzhu/gorm v1.9.16
 	// github.com/howeyc/fsnotify v0.9.0 // indirect
 	// github.com/imdario/mergo v0.3.11 // indirect
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/joho/godotenv v1.3.0
-	github.com/mattn/go-sqlite3 v1.14.5
+	github.com/mattn/go-sqlite3 v1.14.6
 	// github.com/pelletier/go-toml v1.8.1 // indirect
 	// github.com/pilu/config v0.0.0-20131214182432-3eb99e6c0b9a // indirect
 	github.com/pilu/fresh v0.0.0-20190826141211-0fa698148017 // indirect
 	golang.org/x/crypto v0.0.0-20201124201722-c8d3bf9c5392
+	gorm.io/driver/sqlite v1.1.4
+	gorm.io/gorm v1.20.12
 // github.com/rs/cors v1.7.0 // indirect
 // golang.org/x/crypto v0.0.0-20201124201722-c8d3bf9c5392
 // golang.org/x/sys v0.0.0-20201126233918-771906719818 // indirect
