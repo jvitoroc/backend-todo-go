@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
 	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
 	"golang.org/x/crypto/bcrypt"
@@ -153,4 +154,27 @@ func isEmailValid(e string) bool {
 	}
 
 	return true
+}
+
+func extractContextValue(param string, r *http.Request) interface{} {
+	return r.Context().Value(param)
+}
+
+func extractContextInt(param string, r *http.Request) (int, error) {
+	return strconv.Atoi(extractContextValue(param, r).(string))
+}
+
+func extractParam(param string, r *http.Request) (string, bool) {
+	value, err := mux.Vars(r)[param]
+	return value, err
+}
+
+func extractParamInt(param string, r *http.Request) (int, bool) {
+	if value, ok := extractParam(param, r); ok {
+		if value, err := strconv.Atoi(value); err != nil {
+			return value, true
+		}
+	}
+
+	return 0, false
 }

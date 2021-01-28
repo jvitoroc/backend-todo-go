@@ -50,7 +50,7 @@ func createTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
 	parentTodoId, ok := mux.Vars(r)["id"]
 
-	if ok {
+	if ok { // check whether the user provided a parent to the new todo
 		parentTodoId, _ := strconv.Atoi(parentTodoId)
 		todo, err = repo.InsertTodoChild(db, userId, parentTodoId, *requestBody.Description)
 	} else {
@@ -73,8 +73,8 @@ func createTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 }
 
 func updateTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
-	todoId, _ := strconv.Atoi(mux.Vars(r)["id"])
+	userId, _ := extractContextInt("userId", r)
+	todoId, _ := extractParamInt("id", r)
 
 	requestBody := TodoRequestBody{}
 
@@ -115,8 +115,8 @@ func updateTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 }
 
 func deleteTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
-	todoId, _ := strconv.Atoi(mux.Vars(r)["id"])
+	userId, _ := extractContextInt("userId", r)
+	todoId, _ := extractParamInt("id", r)
 
 	if err := repo.DeleteTodo(db, userId, todoId); err != nil {
 		return err
@@ -127,7 +127,7 @@ func deleteTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 }
 
 func deleteManyTodosHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	userId, _ := extractContextInt("userId", r)
 	requestBody := make(map[string][]int)
 
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -149,9 +149,8 @@ func deleteManyTodosHandler(w http.ResponseWriter, r *http.Request) *common.Erro
 }
 
 func getTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
-	todoId, ok := mux.Vars(r)["id"]
-	_todoId, _ := strconv.Atoi(todoId)
+	userId, _ := extractContextInt("userId", r)
+	todoId, ok := extractParamInt("id", r)
 
 	var err *common.Error
 	var todo *repo.Todo
@@ -159,7 +158,7 @@ func getTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	var grandParent *repo.Todo
 
 	if ok {
-		if todo, err = repo.GetTodo(db, userId, _todoId); err != nil {
+		if todo, err = repo.GetTodo(db, userId, todoId); err != nil {
 			return err
 		}
 		if todo != nil && todo.ParentTodoID != nil {
@@ -173,7 +172,7 @@ func getTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	var children []repo.Todo
 
 	if ok {
-		children, err = repo.GetTodoChildren(db, userId, _todoId)
+		children, err = repo.GetTodoChildren(db, userId, todoId)
 	} else {
 		children, err = repo.GetRootTodoChildren(db, userId)
 	}

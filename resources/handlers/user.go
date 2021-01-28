@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -123,7 +122,7 @@ func createUserSessionHandler(w http.ResponseWriter, r *http.Request) *common.Er
 }
 
 func verifiyUserHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	userId, _ := extractContextInt("userId", r)
 	requestBody := map[string]string{}
 
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -157,7 +156,7 @@ func verifiyUserHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 }
 
 func resendEmailHandler(w http.ResponseWriter, r *http.Request) *common.Error {
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
+	userId, _ := extractContextInt("userId", r)
 
 	var user *repo.User
 	var err *common.Error
