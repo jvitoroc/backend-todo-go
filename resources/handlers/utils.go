@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -85,14 +84,11 @@ func parseToken(token string) (jwt.MapClaims, error) {
 func generateActivationCode() string {
 	code := ""
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	var mu sync.Mutex
 
-	mu.Lock()
 	lastIndex := len(CHARS) - 1
 	for i := 0; i < 6; i++ {
 		code = code + string(CHARS[r.Intn(lastIndex)])
 	}
-	mu.Unlock()
 
 	return code
 }
@@ -165,13 +161,13 @@ func extractContextInt(param string, r *http.Request) (int, error) {
 }
 
 func extractParam(param string, r *http.Request) (string, bool) {
-	value, err := mux.Vars(r)[param]
-	return value, err
+	value, ok := mux.Vars(r)[param]
+	return value, ok
 }
 
 func extractParamInt(param string, r *http.Request) (int, bool) {
 	if value, ok := extractParam(param, r); ok {
-		if value, err := strconv.Atoi(value); err != nil {
+		if value, err := strconv.Atoi(value); err == nil {
 			return value, true
 		}
 	}

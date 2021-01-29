@@ -21,6 +21,7 @@ require (
 	// github.com/pilu/config v0.0.0-20131214182432-3eb99e6c0b9a // indirect
 	github.com/pilu/fresh v0.0.0-20190826141211-0fa698148017 // indirect
 	golang.org/x/crypto v0.0.0-20201124201722-c8d3bf9c5392
+	google.golang.org/api v0.37.0
 	gorm.io/driver/sqlite v1.1.4
 	gorm.io/gorm v1.20.12
 // github.com/rs/cors v1.7.0 // indirect

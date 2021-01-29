@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/jvitoroc/todo-api/resources/common"
 	"github.com/jvitoroc/todo-api/resources/repo"
@@ -47,11 +46,10 @@ func createTodoHandler(w http.ResponseWriter, r *http.Request) *common.Error {
 	var err *common.Error
 	var todo *repo.Todo
 
-	userId, _ := strconv.Atoi(r.Context().Value("userId").(string))
-	parentTodoId, ok := mux.Vars(r)["id"]
+	userId, _ := extractContextInt("userId", r)
+	parentTodoId, ok := extractParamInt("id", r)
 
 	if ok { // check whether the user provided a parent to the new todo
-		parentTodoId, _ := strconv.Atoi(parentTodoId)
 		todo, err = repo.InsertTodoChild(db, userId, parentTodoId, *requestBody.Description)
 	} else {
 		todo, err = repo.InsertTodo(db, userId, *requestBody.Description)

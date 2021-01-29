@@ -39,7 +39,7 @@ func CreateConflictError(message string) *Error {
 }
 
 func CreateFormError(errors map[string]string) *Error {
-	return &Error{Code: EINVALID, Message: EMINVALID, Errors: errors}
+	return &Error{Code: EINVALID, Message: EMSEVERAL, Errors: errors}
 }
 
 func CreateNotFoundError(message string) *Error {

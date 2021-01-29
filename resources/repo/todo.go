@@ -12,9 +12,9 @@ import (
 type Todo struct {
 	ID           int       `json:"todoId"`
 	ParentTodoID *int      `json:"parentTodoId"`
-	ParentTodo   *Todo     `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	ParentTodo   *Todo     `json:"-" gorm:"constraint:OnDelete:CASCADE;foreignkey:ID;references:ParentTodoID"`
 	UserID       int       `json:"userId"`
-	User         User      `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	User         User      `json:"-" gorm:"constraint:OnDelete:CASCADE;foreignkey:ID;references:UserID"`
 	Description  string    `json:"description"`
 	Completed    bool      `json:"completed"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -108,7 +108,7 @@ func GetTodoChildren(db *gorm.DB, userId int, todoId int) ([]Todo, *common.Error
 	var result *gorm.DB
 	todos := []Todo{}
 
-	if result = db.Where("parent_todo_id = ? and user_id = ?", todoId, userId).Find(&todos); result.Error != nil {
+	if result = db.Where("parent_todo_id = ? and user_id = ?", todoId, userId).Order("created_at DESC").Find(&todos); result.Error != nil {
 		return nil, common.CreateGenericInternalError(result.Error)
 	}
 
@@ -119,7 +119,7 @@ func GetRootTodoChildren(db *gorm.DB, userId int) ([]Todo, *common.Error) {
 	var result *gorm.DB
 	todos := []Todo{}
 
-	if result = db.Where("parent_todo_id is null and user_id = ?", userId).Find(&todos); result.Error != nil {
+	if result = db.Where("parent_todo_id is null and user_id = ?", userId).Order("created_at DESC").Find(&todos); result.Error != nil {
 		return nil, common.CreateGenericInternalError(result.Error)
 	}
 

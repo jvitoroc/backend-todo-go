@@ -21,11 +21,18 @@ type User struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
+type ExternalAuth struct {
+	UserID     int    `json:"userId"`
+	Type       string `json:"type"`
+	ExternalID string `json:"-"`
+	User       User   `json:"-" gorm:"constraint:OnDelete:CASCADE;foreignkey:ID;references:UserID"`
+}
+
 type UserActivationRequest struct {
 	UserID    int       `json:"userId" gorm:"primaryKey"`
-	User      User      `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
 	Code      string    `json:"code"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	User      User      `json:"-" gorm:"constraint:OnDelete:CASCADE;foreignkey:ID;references:UserID"`
 }
 
 func InsertUser(db *gorm.DB, username string, email string, passwordHash string) (*User, *common.Error) {
