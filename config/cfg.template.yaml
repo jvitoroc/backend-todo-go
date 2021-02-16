@@ -1,0 +1,12 @@
+server:
+  port: 8000
+db:
+  sqliteDSN: XXX
+email:
+  smtpUser: XXX
+  smtpPass: XXX
+  smtpHost: XXX
+  smtpAddr: XXX
+auth:
+  jwtSecret: XXX
+  googleClientID: XXX.apps.googleusercontent.com

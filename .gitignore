@@ -1,15 +1,2 @@
-.env
-
-
-# Binaries, plugins, libs
-*.dll
-*.dylib
-*.exe
-*.exe~
-*.so
-*.db
-gin-bin.exe
-
-# Testing
-*.test
-*.tmp
+config/prod.yaml
+config/test.yaml
