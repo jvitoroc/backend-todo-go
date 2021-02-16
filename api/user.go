@@ -23,7 +23,7 @@ func (api *API) CreateUser(ctx *hn.RequestContext, w http.ResponseWriter, r *htt
 	}
 
 	user.Verified = false
-	if err := api.App.CreateUser(user); err != nil {
+	if err := api.App.CreateUser(user, true); err != nil {
 		return err
 	}
 

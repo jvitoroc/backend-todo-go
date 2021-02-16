@@ -7,7 +7,7 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-func (app *App) CreateUser(user *model.User) *model.AppError {
+func (app *App) CreateUser(user *model.User, sendVerificationEmail bool) *model.AppError {
 	var passwordHash string
 	if err := util.GeneratePasswordHash(&passwordHash, user.Password); err != nil {
 		return model.NewGenericInternalError(err)
@@ -15,7 +15,7 @@ func (app *App) CreateUser(user *model.User) *model.AppError {
 
 	user.Password = passwordHash
 
-	return app.Repository.BeginTran(func(tran *repository.Repository) *model.AppError {
+	err := app.Repository.BeginTran(func(tran *repository.Repository) *model.AppError {
 		usernameExists, err := tran.CheckIfUsernameExists(user.Username)
 		if err != nil {
 			return err
@@ -44,6 +44,12 @@ func (app *App) CreateUser(user *model.User) *model.AppError {
 
 		return nil
 	})
+
+	if err == nil && sendVerificationEmail {
+		app.UpsertVerificationRequest(user)
+	}
+
+	return err
 }
 
 func (app *App) CreateUserWithGoogleClaims(payload *idtoken.Payload) (*model.User, *model.AppError) {
@@ -56,7 +62,7 @@ func (app *App) CreateUserWithGoogleClaims(payload *idtoken.Payload) (*model.Use
 		Verified:  true,
 	}
 
-	err := app.CreateUser(&user)
+	err := app.CreateUser(&user, false)
 	if err != nil {
 		return nil, err
 	}
