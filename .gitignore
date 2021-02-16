@@ -1,2 +1,12 @@
 config/prod.yaml
 config/test.yaml
+
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+*.test
+
+*.out
