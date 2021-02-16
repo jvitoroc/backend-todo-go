@@ -1,6 +1,8 @@
 config/prod.yaml
 config/test.yaml
 
+test.db
+
 *.exe
 *.exe~
 *.dll

@@ -46,7 +46,7 @@ func (app *App) CreateUser(user *model.User, sendVerificationEmail bool) *model.
 	})
 
 	if err == nil && sendVerificationEmail {
-		app.UpsertVerificationRequest(user)
+		app.UpsertVerificationRequest(user) // ignore email
 	}
 
 	return err
